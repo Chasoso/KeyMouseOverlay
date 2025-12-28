@@ -157,37 +157,34 @@ class FollowInputOverlay:
 
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Follow Input Overlay")
-        self.root.configure(bg=self.BG)
+        self._configure_root()
 
-        # ---- tuning knobs ---------------------------------------------------
-        self.follow_interval_ms = 16   # ~60fps
-        self.offset_x = 18             # window follow offset (cursor -> window)
+        # behavior / layout
+        self.follow_interval_ms = 16
+        self.offset_x = 18
         self.offset_y = 18
 
-        # layout: mouse left, key plate right
         self.gap_between_mouse_and_keys = 10
 
-        # mouse icon size: keep button part readable, shrink body mainly
-        self.mouse_scale = 0.82        # width/overall scale a bit smaller
-        self.body_shrink_px = 22       # shrink bottom part (body height)
+        self.mouse_scale = 0.82
+        self.body_shrink_px = 22
 
         self.hold_ms = 600
-        # ---------------------------------------------------------------------
+        self.inactivity_ms = 2000
+        self.inactivity_ms_options = [
+            ("Off", None),
+            ("1s", 1000),
+            ("2s", 2000),
+            ("3s", 3000),
+            ("5s", 5000),
+        ]
 
         self._clear_after_id = None
         self._last_labels_text = ""
+        self._inactivity_after_id = None
 
-        # borderless + topmost + transparency
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.88)
-        self.root.wm_attributes("-transparentcolor", self.BG)
+        self.events = queue.Queue()
 
-        # cross-thread event queue (pynput -> Tk)
-        self.q = queue.Queue()
-
-        # input state
         self.mouse_state = {"left": False, "right": False}
         self.pressed_key_ids = set()
         self.id_to_key = {}
@@ -195,14 +192,24 @@ class FollowInputOverlay:
         self._build_ui()
         self._start_listeners()
 
-        # --- tray (pystray) ---
         self._visible = True
+        self._user_visible = True
+        self._auto_hidden = False
         self.tray_icon = None
         self._start_tray_icon()
 
         self._running = True
         self.root.after(self.follow_interval_ms, self._follow_mouse)
         self.root.after(16, self._process_queue)
+        self._reset_inactivity_timer()
+
+    def _configure_root(self):
+        self.root.title("Follow Input Overlay")
+        self.root.configure(bg=self.BG)
+        self.root.overrideredirect(True)
+        self.root.attributes("-topmost", True)
+        self.root.attributes("-alpha", 0.88)
+        self.root.wm_attributes("-transparentcolor", self.BG)
 
     # --- UI ------------------------------------------------------------------
 
@@ -298,6 +305,15 @@ class FollowInputOverlay:
         h = self.root.winfo_reqheight()
         self.root.geometry(f"{w}x{h}+40+40")
 
+    def _cancel_after(self, after_id):
+        if after_id is None:
+            return None
+        try:
+            self.root.after_cancel(after_id)
+        except Exception:
+            pass
+        return None
+
     # --- pynput listeners -----------------------------------------------------
 
     def _start_listeners(self):
@@ -308,13 +324,13 @@ class FollowInputOverlay:
                 name = "right"
             else:
                 return
-            self.q.put(("mouse", name, pressed))
+            self.events.put(("mouse", name, pressed))
 
         def on_press(k):
-            self.q.put(("key", k, True))
+            self.events.put(("key", k, True))
 
         def on_release(k):
-            self.q.put(("key", k, False))
+            self.events.put(("key", k, False))
 
         self.mouse_listener = mouse.Listener(on_click=on_click)
         self.kb_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
@@ -341,12 +357,13 @@ class FollowInputOverlay:
     def _process_queue(self):
         try:
             while True:
-                kind, *rest = self.q.get_nowait()
+                kind, *rest = self.events.get_nowait()
 
                 if kind == "mouse":
                     name, pressed = rest
                     self.mouse_state[name] = pressed
                     self._render_mouse()
+                    self._handle_activity()
 
                 elif kind == "key":
                     k, pressed = rest
@@ -357,6 +374,7 @@ class FollowInputOverlay:
                     else:
                         self.pressed_key_ids.discard(kid)
                     self._render_keys()
+                    self._handle_activity()
 
         except queue.Empty:
             pass
@@ -389,32 +407,15 @@ class FollowInputOverlay:
             text = " + ".join(labels)
             self._set_key_text(text)
             self._last_labels_text = text
-
-            if self._clear_after_id is not None:
-                try:
-                    self.root.after_cancel(self._clear_after_id)
-                except Exception:
-                    pass
-                self._clear_after_id = None
+            self._clear_after_id = self._cancel_after(self._clear_after_id)
             return
 
-        if self._last_labels_text:
-            self._set_key_text(self._last_labels_text)
-
-            if self._clear_after_id is not None:
-                try:
-                    self.root.after_cancel(self._clear_after_id)
-                except Exception:
-                    pass
-
-            def clear():
-                self._set_key_text("")
-                self._last_labels_text = ""
-                self._clear_after_id = None
-
-            self._clear_after_id = self.root.after(self.hold_ms, clear)
-        else:
+        if not self._last_labels_text:
             self._set_key_text("")
+            return
+
+        self._set_key_text(self._last_labels_text)
+        self._schedule_clear_keys()
 
     # --- Key plate ------------------------------------------------------------
 
@@ -472,6 +473,59 @@ class FollowInputOverlay:
 
         self._fit_window_to_content()
 
+    def _schedule_clear_keys(self):
+        self._clear_after_id = self._cancel_after(self._clear_after_id)
+        self._clear_after_id = self.root.after(self.hold_ms, self._clear_key_display)
+
+    def _clear_key_display(self):
+        self._set_key_text("")
+        self._last_labels_text = ""
+        self._clear_after_id = None
+
+    # --- Visibility + inactivity -------------------------------------------
+
+    def _update_visibility(self):
+        should_show = self._user_visible and not self._auto_hidden
+        if should_show and not self._visible:
+            self.root.deiconify()
+        elif not should_show and self._visible:
+            self.root.withdraw()
+        self._visible = should_show
+
+    def _handle_activity(self):
+        if not self._running:
+            return
+        self._auto_hidden = False
+        self._update_visibility()
+        self._reset_inactivity_timer()
+
+    def _reset_inactivity_timer(self):
+        self._inactivity_after_id = self._cancel_after(self._inactivity_after_id)
+
+        if self.inactivity_ms is None:
+            return
+
+        self._inactivity_after_id = self.root.after(self.inactivity_ms, self._handle_inactivity_timeout)
+
+    def _handle_inactivity_timeout(self):
+        if not self._running:
+            return
+        self._inactivity_after_id = None
+        self._auto_hidden = True
+        self._update_visibility()
+
+    def _set_inactivity_ms(self, ms):
+        self.inactivity_ms = ms
+        # Returning from tray should reflect immediately
+        self._auto_hidden = False
+        self._update_visibility()
+        self._reset_inactivity_timer()
+        try:
+            if self.tray_icon is not None:
+                self.tray_icon.update_menu()
+        except Exception:
+            pass
+
     # --- Tray (pystray) ------------------------------------------------------
 
     def _start_tray_icon(self):
@@ -487,35 +541,54 @@ class FollowInputOverlay:
                 self.root.after(0, self.toggle_visible)
             except Exception:
                 pass
-    
+
+        def make_inactivity_item(label, ms):
+            def on_set(icon, item):
+                try:
+                    self.root.after(0, lambda: self._set_inactivity_ms(ms))
+                except Exception:
+                    pass
+
+            def is_checked(item):
+                return self.inactivity_ms == ms
+
+            return pystray.MenuItem(label, on_set, checked=is_checked)
+
         image = load_tray_icon_from_ico("key_mouse_overlay.ico")
-    
+
         menu = pystray.Menu(
             pystray.MenuItem("Show/Hide", on_toggle),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                "Auto-hide",
+                pystray.Menu(*(make_inactivity_item(label, ms) for label, ms in self.inactivity_ms_options))
+            ),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", on_quit),
         )
-    
+
         self.tray_icon = pystray.Icon(
             "KeyMouseOverlay",
             image,
             "KeyMouseOverlay",
             menu
         )
-    
+
         t = threading.Thread(target=self.tray_icon.run, daemon=True)
         t.start()
 
     def toggle_visible(self):
-        self._visible = not self._visible
-        if self._visible:
-            self.root.deiconify()
-        else:
-            self.root.withdraw()
+        self._user_visible = not self._user_visible
+        if self._user_visible:
+            self._auto_hidden = False
+            self._reset_inactivity_timer()
+        self._update_visibility()
 
     # --- Quit ----------------------------------------------------------------
 
     def quit(self):
         self._running = False
+        self._inactivity_after_id = self._cancel_after(self._inactivity_after_id)
         try:
             self.mouse_listener.stop()
         except Exception:
