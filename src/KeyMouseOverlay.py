@@ -169,6 +169,9 @@ class FollowInputOverlay:
         self.mouse_scale = 0.82
         self.body_shrink_px = 22
 
+        self.left_click_color = "#FFC107"
+        self.right_click_color = "#00BCD4"
+
         self.hold_ms = 600
         self.inactivity_ms = 2000
         self.inactivity_ms_options = [
@@ -227,7 +230,6 @@ class FollowInputOverlay:
         self.text_canvas.pack(side="left", padx=(self.gap_between_mouse_and_keys, 0))
 
         self.text_font = ("Segoe UI", 16, "bold")
-        self.text_center = (0, 23)
 
         self.key_bg = round_rect(self.text_canvas, 0, 0, 0, 0, 10, fill=self.KEY_BG, outline="", width=0)
         self.key_text = self.text_canvas.create_text(
@@ -235,7 +237,7 @@ class FollowInputOverlay:
             text="",
             font=self.text_font,
             fill=self.KEY_TEXT,
-            anchor="center"
+            anchor="w"
         )
         self.text_canvas.tag_lower(self.key_bg, self.key_text)
 
@@ -385,11 +387,17 @@ class FollowInputOverlay:
             self.root.after(16, self._process_queue)
 
     def _render_mouse(self):
-        def fill(on: bool):
-            return "#FFD54A" if on else "#1F1F1F"
+        def fill(on: bool, color: str):
+            return color if on else "#1F1F1F"
 
-        self.canvas.itemconfig(self.left_btn, fill=fill(self.mouse_state["left"]))
-        self.canvas.itemconfig(self.right_btn, fill=fill(self.mouse_state["right"]))
+        self.canvas.itemconfig(
+            self.left_btn,
+            fill=fill(self.mouse_state["left"], self.left_click_color)
+        )
+        self.canvas.itemconfig(
+            self.right_btn,
+            fill=fill(self.mouse_state["right"], self.right_click_color)
+        )
 
     def _render_keys(self):
         labels = []
@@ -422,16 +430,14 @@ class FollowInputOverlay:
     def _apply_key_plate_width(self, text: str):
         if not text:
             self.text_canvas.config(width=10)
-            self.text_center = (5, 23)
-            self.text_canvas.coords(self.key_text, self.text_center[0], self.text_center[1])
+            self.text_canvas.coords(self.key_text, 5, 23)
             return
 
         pad_x = 10
-        w = self._tk_font.measure(text) + pad_x * 2 + 10
-        w = max(120, min(520, w))
-        self.text_canvas.config(width=w)
-        self.text_center = (w // 2, 23)
-        self.text_canvas.coords(self.key_text, self.text_center[0], self.text_center[1])
+        w = self._tk_font.measure(text)
+        width = min(520, w + pad_x * 2 + 10)
+        self.text_canvas.config(width=width)
+        self.text_canvas.coords(self.key_text, pad_x, 23)
 
     def _set_key_text(self, text: str):
         self.text_canvas.itemconfig(self.key_text, text=text)
@@ -447,10 +453,11 @@ class FollowInputOverlay:
         w = self._tk_font.measure(text)
         h = self._tk_font.metrics("linespace")
 
-        cx, cy = self.text_center
-        x0 = cx - w / 2 - pad_x
+        cy = 23
+        width = min(520, w + pad_x * 2 + 10)
+        x0 = 0
         y0 = cy - h / 2 - pad_y
-        x1 = cx + w / 2 + pad_x
+        x1 = width
         y1 = cy + h / 2 + pad_y
 
         r = max(0, min(r, (x1 - x0) / 2, (y1 - y0) / 2))
