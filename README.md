@@ -1,73 +1,61 @@
 # KeyMouseOverlay
 
-KeyMouseOverlay is a lightweight Windows overlay application that visualizes  
-mouse button presses and keyboard input in real time.
-
-It is designed for hands-on sessions, live demonstrations, and screen recording,
-especially for tools such as Tableau or other GUI-based applications.
+KeyMouseOverlay is a lightweight Windows overlay that follows your cursor and visualizes mouse and keyboard input in real time. It is handy for hands-on sessions, live demos, and screen recording (e.g., Tableau, GUI trainings, OBS streaming).
 
 ---
 
 ## Features
 
-- Visual mouse overlay (left and right buttons)
-- Real-time keyboard input display
-- Supports multiple simultaneous key presses
-- Correct handling of modifier keys (Ctrl, Shift, Alt, Win)
-- Short key hold after release for better readability
-- Borderless, always-on-top overlay window
-- Transparent background on Windows
-- Minimal and unobtrusive UI
+- Mouse overlay with left/right button highlights
+- Real-time keyboard display with multiple simultaneous keys and modifier labeling
+- Short key hold after release for readability
+- Auto-hide after inactivity (configurable in tray; Off/1s/2s/3s/5s)
+- Tray menu for Show/Hide toggle, auto-hide interval, and Quit
+- Borderless, always-on-top window that follows the cursor with a small offset
+- Transparent background on Windows for unobtrusive capture
 
 ---
 
 ## Typical Use Cases
 
-- Tableau hands-on workshops
 - Live demonstrations and presentations
-- Tutorial video recording
-- Screen sharing and streaming (e.g. OBS)
+- Tutorial or training video recording
+- Screen sharing and streaming (OBS, etc.)
 
 ---
 
 ## Download
 
-KeyMouseOverlay.exe  
-(Windows only)
-
-No installation is required. Download and run the executable.
+KeyMouseOverlay.exe (Windows only)  
+No installation required—download and run the executable.
 
 ---
 
 ## How to Use
 
-- Left mouse button + drag  
-  Move the overlay window
-
-- Right mouse button  
-  Open menu and quit the application
-
-The overlay automatically shows:
-- Mouse button states
-- Currently pressed keys (for example: Ctrl + Shift + C)
+- Launch the app: the overlay appears near your cursor and tracks it automatically.
+- Tray icon (notification area):  
+  - **Show/Hide**: toggle overlay visibility manually.  
+  - **Auto-hide**: choose inactivity timeout (Off/1s/2s/3s/5s). If enabled, the overlay hides after the selected idle time and reappears on the next mouse click or key press.  
+  - **Quit**: exit the app.
+- Displayed content: current mouse button states and pressed keys (e.g., `Ctrl + Shift + C`).
 
 ---
 
 ## Platform Support
 
-- Windows 11: supported
-- macOS / Linux: not supported  
-  (The transparent overlay relies on Windows-specific behavior)
+- Windows 11: supported  
+- macOS / Linux: not supported (transparency relies on Windows-specific behavior)
 
 ---
 
 ## Implementation Details
 
-- Implemented in Python
-- UI built with Tkinter
-- Input captured using pynput
-- Background transparency achieved via color-key technique
-- Key labels use a background plate for readability on any background
+- Python + Tkinter for UI
+ - pynput for global input capture
+- Pystray for the system tray icon and menu
+- Color-key transparency for the background
+- Key labels use a background plate for readability on any backdrop
 
 ---
 
